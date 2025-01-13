@@ -5,16 +5,23 @@ from PIL import Image
 
 # Helper Functions
 
-def align_images_by_pixel_difference(image1, image2):
-    """Align two images by pixel difference (simply resizing the second image)."""
-    # Convert images to grayscale for pixel comparison
+def align_images_by_template_matching(image1, image2):
+    """Align two images using template matching (cross-correlation)."""
+    # Convert images to grayscale for better processing
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    # Resize image2 to match the size of image1
-    image2_resized = cv2.resize(image2, (image1.shape[1], image1.shape[0]))
+    # Perform template matching (cross-correlation)
+    result = cv2.matchTemplate(gray2, gray1, cv2.TM_CCOEFF_NORMED)
 
-    return image2_resized
+    # Get the location with the maximum correlation (best alignment)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+    # Align image2 by shifting it based on the best match location
+    aligned_image2 = np.roll(image2, max_loc[1], axis=1)  # Shift along x-axis (horizontal)
+    aligned_image2 = np.roll(aligned_image2, max_loc[0], axis=0)  # Shift along y-axis (vertical)
+
+    return aligned_image2, max_loc, max_val
 
 def find_differences_by_pixel(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images by pixel difference."""
@@ -101,8 +108,8 @@ if "image1" in locals() and "image2" in locals():
     color = st.sidebar.color_picker("Marking color", "#FF0000", help="Choose the color to highlight differences.")
     thickness = st.sidebar.slider("Marking thickness", 1, 10, 3, help="Adjust the thickness of the markers on differences.")
 
-    # Align Images by Resizing (Pixel-wise)
-    aligned_image2 = align_images_by_pixel_difference(image1, image2)
+    # Align Images using Template Matching (Cross-Correlation)
+    aligned_image2, max_loc, max_val = align_images_by_template_matching(image1, image2)
     
     # Find differences by pixel
     result_image, diff_image, differences_found = find_differences_by_pixel(
@@ -112,6 +119,8 @@ if "image1" in locals() and "image2" in locals():
     # Display Results
     st.subheader("Results")
     st.write(f"Total differences found: {differences_found}")
+    st.write(f"Best alignment position: {max_loc} with match value: {max_val:.4f}")
+    
     col1, col2 = st.columns(2)
     with col1:
         st.image(result_image, caption="Differences Highlighted", use_container_width=True)
@@ -146,8 +155,8 @@ if "image1" in locals() and "image2" in locals():
         - Color: Choose the color to mark the differences.
         - Thickness: Adjust the thickness of the circle markers for differences.
 
-        **Step 4:** Image alignment.
-        - The images are resized (pixel-wise) to match the size for comparison.
+        **Step 4:** Image Alignment (Template Matching).
+        - The second image is aligned to the first using template matching (cross-correlation).
 
         **Step 5:** Difference Detection.
         - The pixel-by-pixel differences are detected and marked.
