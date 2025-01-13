@@ -17,9 +17,11 @@ def align_images_by_template_matching(image1, image2):
     # Get the location with the maximum correlation (best alignment)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-    # Align image2 by shifting it based on the best match location
-    aligned_image2 = np.roll(image2, max_loc[1], axis=1)  # Shift along x-axis (horizontal)
-    aligned_image2 = np.roll(aligned_image2, max_loc[0], axis=0)  # Shift along y-axis (vertical)
+    # Create the affine matrix for shifting
+    translation_matrix = np.float32([[1, 0, max_loc[0]], [0, 1, max_loc[1]]])
+
+    # Apply the translation using warpAffine
+    aligned_image2 = cv2.warpAffine(image2, translation_matrix, (image2.shape[1], image2.shape[0]))
 
     return aligned_image2, max_loc, max_val
 
