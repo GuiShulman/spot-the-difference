@@ -4,7 +4,6 @@ import numpy as np
 from PIL import Image
 
 # Helper Functions
-
 def crop_borders(image):
     """Crop empty borders (black or white) from an image."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -63,7 +62,6 @@ def find_differences_by_pixel(image1, image2, threshold, color, thickness, min_a
     return result_image, diff, differences_found
 
 # Streamlit App
-
 st.title("Spot the Difference")
 st.markdown("Find differences between two images with precise control over settings.")
 
@@ -172,18 +170,6 @@ if "image1" in locals() and "image2" in locals():
     col1, col2 = st.columns(2)
     with col1:
         st.image(result_image, caption="Differences Highlighted", use_container_width=True)
-        st.download_button(
-            label="Download Highlighted Image",
-            data=Image.fromarray(cv2.cvtColor(result_image, cv2.COLOR_BGR2RGB)).tobytes(),
-            file_name="highlighted_differences.png",
-            mime="image/png"
-        )
     if show_difference_mask:
         with col2:
             st.image(diff_image, caption="Difference Mask", use_container_width=True)
-            st.download_button(
-                label="Download Difference Mask",
-                data=Image.fromarray(diff_image).tobytes(),
-                file_name="difference_mask.png",
-                mime="image/png"
-            )
