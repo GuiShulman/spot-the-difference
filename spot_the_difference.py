@@ -4,10 +4,18 @@ import numpy as np
 from PIL import Image
 
 # Helper Functions
+def preprocess_image(image):
+    """Preprocess the image for better alignment."""
+    # Convert to grayscale and apply GaussianBlur for better feature detection
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    return blurred
+
 def align_images(image1, image2):
-    """Align two images using keypoint matching."""
-    gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
-    gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+    """Align two images using feature matching."""
+    # Preprocess images
+    gray1 = preprocess_image(image1)
+    gray2 = preprocess_image(image2)
 
     orb = cv2.ORB_create()
     kp1, des1 = orb.detectAndCompute(gray1, None)
@@ -23,8 +31,9 @@ def align_images(image1, image2):
     matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
     height, width, _ = image1.shape
     aligned_image = cv2.warpPerspective(image2, matrix, (width, height))
-    return aligned_image
 
+    # Provide debug info
+    return aligned_image, matches
 
 def find_differences(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images."""
@@ -104,7 +113,7 @@ if "image1" in locals() and "image2" in locals():
     )
 
     # Process Images
-    aligned_image2 = align_images(image1, image2)
+    aligned_image2, matches = align_images(image1, image2)
     result_image, diff_image, differences_found = find_differences(
         image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
     )
@@ -112,6 +121,12 @@ if "image1" in locals() and "image2" in locals():
     # Display Results
     st.subheader("Results")
     st.write(f"Total differences found: {differences_found}")
+    
+    # Show matches during alignment process
+    st.subheader("Alignment Debug Info")
+    st.write(f"Number of keypoint matches: {len(matches)}")
+
+    # Showing results
     col1, col2 = st.columns(2)
     with col1:
         st.image(result_image, caption="Differences Highlighted", use_container_width=True)
