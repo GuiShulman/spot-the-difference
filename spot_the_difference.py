@@ -5,40 +5,41 @@ from PIL import Image
 
 # Helper Functions
 
-def align_images_by_template_matching(image1, image2):
-    """Align two images using template matching (cross-correlation)."""
-    # Convert images to grayscale for better processing
+def align_images_by_pixel_similarity(image1, image2, move_range):
+    """Align two images by maximizing pixel similarity within a defined movement range."""
+    # Convert images to grayscale for comparison
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    # Perform template matching (cross-correlation)
-    result = cv2.matchTemplate(gray2, gray1, cv2.TM_CCOEFF_NORMED)
+    best_score = -1
+    best_dx, best_dy = 0, 0
 
-    # Get the location with the maximum correlation (best alignment)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+    # Search for the best alignment within the user-defined range
+    for dx in range(-move_range, move_range + 1):
+        for dy in range(-move_range, move_range + 1):
+            # Translate the second image
+            translation_matrix = np.float32([[1, 0, dx], [0, 1, dy]])
+            shifted_image = cv2.warpAffine(gray2, translation_matrix, (gray2.shape[1], gray2.shape[0]))
 
-    # Check if the match value is above a threshold to consider it a valid match
-    if max_val < 0.5:  # Adjust the threshold if needed
-        raise ValueError("The match value is too low, alignment failed!")
+            # Compute similarity score (count of identical pixels)
+            score = np.sum(gray1 == shifted_image)
 
-    # Create the affine matrix for shifting
-    translation_matrix = np.float32([[1, 0, max_loc[0]], [0, 1, max_loc[1]]])
+            if score > best_score:
+                best_score = score
+                best_dx, best_dy = dx, dy
 
-    # Apply the translation using warpAffine
+    # Apply the best alignment
+    translation_matrix = np.float32([[1, 0, best_dx], [0, 1, best_dy]])
     aligned_image2 = cv2.warpAffine(image2, translation_matrix, (image2.shape[1], image2.shape[0]))
 
-    return aligned_image2, max_loc, max_val
+    return aligned_image2, best_dx, best_dy, best_score
 
 def find_differences_by_pixel(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images by pixel difference."""
-    # Compute absolute difference
     diff = cv2.absdiff(image1, image2)
     gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
     
-    # Threshold the difference to get the regions with significant changes
     _, thresh = cv2.threshold(gray_diff, threshold, 255, cv2.THRESH_BINARY)
-
-    # Find contours in the thresholded difference
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     result_image = image1.copy()
@@ -52,7 +53,6 @@ def find_differences_by_pixel(image1, image2, threshold, color, thickness, max_d
             cv2.circle(result_image, center, radius, color, thickness)
             differences_found += 1
 
-            # Stop if the desired number of differences is found
             if max_differences and differences_found >= max_differences:
                 break
 
@@ -63,11 +63,11 @@ def find_differences_by_pixel(image1, image2, threshold, color, thickness, max_d
 st.title("Spot the Difference")
 
 # Upload Section
-st.subheader("Step 1: Upload Images")
+st.subheader("Upload Images")
 option = st.radio(
-    "Choose your image input method",
+    "How would you like to provide input images?",
     ["Split one image (Top/Bottom or Left/Right)", "Upload two separate images"],
-    help="Choose how to provide input images."
+    help="Split a single image or upload two separate images for comparison."
 )
 
 if option == "Split one image (Top/Bottom or Left/Right)":
@@ -79,12 +79,10 @@ if option == "Split one image (Top/Bottom or Left/Right)":
 
         height, width, _ = image_np.shape
         if height > width:
-            # Top/Bottom split
             half_height = height // 2
             image1 = image_np[:half_height, :]
             image2 = image_np[half_height:, :]
         else:
-            # Left/Right split
             half_width = width // 2
             image1 = image_np[:, :half_width]
             image2 = image_np[:, half_width:]
@@ -102,34 +100,49 @@ elif option == "Upload two separate images":
 
 # Settings Section
 if "image1" in locals() and "image2" in locals():
-    st.sidebar.subheader("Step 2: Choose Difference Detection Settings")
+    st.sidebar.title("Settings")
 
-    # Number of differences to find
-    max_differences = st.sidebar.number_input(
-        "Number of differences to find", min_value=0, value=0, help="Enter the number of differences to detect. 0 for all."
+    # Alignment Parameters
+    st.sidebar.subheader("Image Alignment")
+    move_range = st.sidebar.slider(
+        "Max Pixel Movement Range", 1, 100, 50,
+        help="Defines the maximum range (in pixels) to search for alignment between images."
     )
 
-    st.sidebar.subheader("Step 3: Adjust Detection Parameters")
-    threshold = st.sidebar.slider("Threshold for differences", 1, 255, 50, help="Lower values detect more subtle differences.")
-    color = st.sidebar.color_picker("Marking color", "#FF0000", help="Choose the color to highlight differences.")
-    thickness = st.sidebar.slider("Marking thickness", 1, 10, 3, help="Adjust the thickness of the markers on differences.")
+    # Difference Detection Parameters
+    st.sidebar.subheader("Difference Detection")
+    threshold = st.sidebar.slider(
+        "Detection Sensitivity", 1, 255, 50,
+        help="Lower values detect more subtle differences, higher values detect only significant changes."
+    )
+    color = st.sidebar.color_picker(
+        "Highlight Color", "#FF0000",
+        help="Choose the color used to highlight the differences."
+    )
+    thickness = st.sidebar.slider(
+        "Marker Thickness", 1, 10, 3,
+        help="Adjust the thickness of the circle markers used to highlight differences."
+    )
+    max_differences = st.sidebar.number_input(
+        "Max Differences to Highlight", min_value=0, value=0,
+        help="Set the maximum number of differences to highlight. Enter 0 to highlight all differences."
+    )
 
-    # Align Images using Template Matching (Cross-Correlation)
-    try:
-        aligned_image2, max_loc, max_val = align_images_by_template_matching(image1, image2)
-        st.sidebar.write(f"Best alignment position: {max_loc} with match value: {max_val:.4f}")
-    except ValueError as e:
-        st.sidebar.error(str(e))
-        st.stop()
-    
-    # Find differences by pixel
+    # Alignment Process
+    aligned_image2, best_dx, best_dy, best_score = align_images_by_pixel_similarity(image1, image2, move_range)
+    st.sidebar.write(f"Alignment Offset: dx={best_dx}, dy={best_dy}")
+    st.sidebar.write(f"Pixel Similarity Score: {best_score}")
+
+    # Difference Detection Process
     result_image, diff_image, differences_found = find_differences_by_pixel(
-        image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
+        image1, aligned_image2, threshold,
+        tuple(int(color[i:i+2], 16) for i in (1, 3, 5)),
+        thickness, max_differences or None
     )
 
     # Display Results
     st.subheader("Results")
-    st.write(f"Total differences found: {differences_found}")
+    st.write(f"Total Differences Found: {differences_found}")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -148,32 +161,3 @@ if "image1" in locals() and "image2" in locals():
             file_name="difference_mask.png",
             mime="image/png"
         )
-
-    # Show Process Explanation
-    st.sidebar.subheader("How it works:")
-
-    st.sidebar.write(
-        """
-        **Step 1:** Upload or split your images.
-        - You can upload two separate images or split one image into two (top/bottom or left/right).
-
-        **Step 2:** Choose the number of differences you want to detect.
-        - Set the number of differences (enter 0 for detecting all).
-
-        **Step 3:** Adjust the detection parameters.
-        - Threshold: Controls the sensitivity of difference detection.
-        - Color: Choose the color to mark the differences.
-        - Thickness: Adjust the thickness of the circle markers for differences.
-
-        **Step 4:** Image Alignment (Template Matching).
-        - The second image is aligned to the first using template matching (cross-correlation).
-
-        **Step 5:** Difference Detection.
-        - The pixel-by-pixel differences are detected and marked.
-
-        **Step 6:** Results.
-        - View the marked differences and download the highlighted image and difference mask.
-
-        Enjoy spotting the differences!
-        """
-    )
