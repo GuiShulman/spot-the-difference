@@ -2,17 +2,16 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-from scipy.ndimage import correlate
 
 # Helper Functions
 
 def align_images(image1, image2):
-    """Align two images using cross-correlation to minimize pixel difference."""
+    """Align two images using a basic image subtraction for alignment."""
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    # Perform cross-correlation
-    result = correlate(gray1, gray2, mode='constant')
+    # Perform basic image subtraction for alignment
+    result = cv2.absdiff(gray1, gray2)
     y, x = np.unravel_index(np.argmax(result), result.shape)
 
     # Create translation matrix and apply
@@ -102,11 +101,6 @@ if "image1" in locals() and "image2" in locals():
     color = st.sidebar.color_picker("Marking color", "#FF0000", help="Choose the color to highlight differences.")
     thickness = st.sidebar.slider("Marking thickness", 1, 10, 3, help="Adjust the thickness of the markers on differences.")
 
-    st.sidebar.subheader("Step 4: Alignment Method")
-    st.sidebar.write(
-        "Images will be automatically aligned for optimal comparison. You can adjust alignment settings here if needed."
-    )
-    
     # Align Images
     aligned_image2 = align_images(image1, image2)
     
@@ -137,7 +131,7 @@ if "image1" in locals() and "image2" in locals():
         )
 
     # Show Process Explanation
-    st.sidebar.subheader("How it works:")
+    st.sidebar.subheader("How it works:") 
     st.sidebar.write(
         """
         - **Step 1:** Upload images (either split one or upload two separate).
