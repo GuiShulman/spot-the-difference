@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-
+# Helper Functions
 def align_images(image1, image2):
     """Align two images using keypoint matching."""
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
@@ -26,7 +26,7 @@ def align_images(image1, image2):
     return aligned_image
 
 
-def find_differences(image1, image2, threshold, min_size, mark_type):
+def find_differences(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images."""
     diff = cv2.absdiff(image1, image2)
     gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
@@ -35,93 +35,98 @@ def find_differences(image1, image2, threshold, min_size, mark_type):
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     result_image = image1.copy()
-    for contour in contours:
-        if cv2.contourArea(contour) > min_size:
-            x, y, w, h = cv2.boundingRect(contour)
-            if mark_type == "Rectangle":
-                cv2.rectangle(result_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            elif mark_type == "Circle":
-                center = (x + w // 2, y + h // 2)
-                radius = max(w, h) // 2
-                cv2.circle(result_image, center, radius, (0, 255, 0), 2)
+    differences_found = 0
 
-    return result_image, diff
+    for contour in contours:
+        if cv2.contourArea(contour) > 50:  # Ignore very small differences
+            x, y, w, h = cv2.boundingRect(contour)
+            center = (x + w // 2, y + h // 2)
+            radius = max(w, h) // 2
+            cv2.circle(result_image, center, radius, color, thickness)
+            differences_found += 1
+
+            # Stop if we've found the desired number of differences
+            if max_differences and differences_found >= max_differences:
+                break
+
+    return result_image, diff, differences_found
 
 
 # Streamlit App
-st.title("Spot the Difference - User-Friendly")
+st.title("Spot the Difference")
 
-# Step 1: Image Upload
-st.subheader("Step 1: Upload Images")
+# Upload Section
+st.subheader("Upload Images")
 option = st.radio(
-    "Choose input method:",
-    ["Split one image", "Upload two images"],
-    help="Split one image into two parts or upload two separate images."
+    "",
+    ["Split one image (Top/Bottom or Left/Right)", "Upload two separate images"],
+    help="Choose how to provide input images.",
 )
 
-if option == "Split one image":
-    uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "jpeg", "png"])
-    split_direction = st.radio(
-        "How to split the image?",
-        ["Top/Bottom", "Left/Right"],
-        help="Choose whether to split the image vertically or horizontally."
-    )
+if option == "Split one image (Top/Bottom or Left/Right)":
+    st.image("split_options.png", caption="Example split options", use_container_width=True)
+    uploaded_file = st.file_uploader("Upload an image to split", type=["jpg", "jpeg", "png"])
 
     if uploaded_file:
         image = Image.open(uploaded_file)
         image_np = np.array(image)
 
         height, width, _ = image_np.shape
-        if split_direction == "Top/Bottom":
+        if height > width:
+            # Top/Bottom split
             half_height = height // 2
             image1 = image_np[:half_height, :]
             image2 = image_np[half_height:, :]
         else:
+            # Left/Right split
             half_width = width // 2
             image1 = image_np[:, :half_width]
             image2 = image_np[:, half_width:]
 
         st.image([image1, image2], caption=["Image 1", "Image 2"], use_container_width=True)
 
-elif option == "Upload two images":
-    uploaded_file1 = st.file_uploader("Upload the first image", type=["jpg", "jpeg", "png"], key="image1")
-    uploaded_file2 = st.file_uploader("Upload the second image", type=["jpg", "jpeg", "png"], key="image2")
-
-    if uploaded_file1 and uploaded_file2:
-        image1 = np.array(Image.open(uploaded_file1))
-        image2 = np.array(Image.open(uploaded_file2))
-
+elif option == "Upload two separate images":
+    uploaded_files = st.file_uploader(
+        "Upload exactly two images", type=["jpg", "jpeg", "png"], accept_multiple_files=True
+    )
+    if uploaded_files and len(uploaded_files) == 2:
+        image1 = np.array(Image.open(uploaded_files[0]))
+        image2 = np.array(Image.open(uploaded_files[1]))
         st.image([image1, image2], caption=["Image 1", "Image 2"], use_container_width=True)
 
-# Step 2: Parameters
+# Settings Section
 if "image1" in locals() and "image2" in locals():
-    st.subheader("Step 2: Adjust Parameters")
-    threshold = st.slider("Threshold for differences:", 1, 255, 50, help="Lower values detect smaller differences.")
-    min_size = st.slider("Minimum size of differences (pixels):", 1, 500, 50, help="Ignore small differences.")
-    mark_type = st.radio("Mark differences as:", ["Rectangle", "Circle"], help="Choose how to highlight differences.")
+    st.sidebar.subheader("Settings")
+    threshold = st.sidebar.slider("Threshold for differences", 1, 255, 50, help="Lower values detect more subtle differences.")
+    color = st.sidebar.color_picker("Marking color", "#FF0000")
+    thickness = st.sidebar.slider("Marking thickness", 1, 10, 3)
+    max_differences = st.sidebar.number_input(
+        "Number of differences to find (set to 0 to find all)", min_value=0, value=0, help="Enter the number of differences to detect."
+    )
 
-    # Step 3: Process Images
-    st.subheader("Step 3: View Results")
+    # Process Images
     aligned_image2 = align_images(image1, image2)
-    result_image, diff_image = find_differences(image1, aligned_image2, threshold, min_size, mark_type)
-
-    st.image(result_image, caption="Differences Highlighted", use_container_width=True)
-    st.image(diff_image, caption="Difference Mask", use_container_width=True)
-
-    # Step 4: Download Results
-    st.subheader("Step 4: Download Results")
-    result_pil = Image.fromarray(cv2.cvtColor(result_image, cv2.COLOR_BGR2RGB))
-    diff_pil = Image.fromarray(diff_image)
-
-    st.download_button(
-        label="Download Highlighted Image",
-        data=result_pil.tobytes(),
-        file_name="highlighted_differences.png",
-        mime="image/png"
+    result_image, diff_image, differences_found = find_differences(
+        image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
     )
-    st.download_button(
-        label="Download Difference Mask",
-        data=diff_pil.tobytes(),
-        file_name="difference_mask.png",
-        mime="image/png"
-    )
+
+    # Display Results
+    st.subheader("Results")
+    st.write(f"Total differences found: {differences_found}")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(result_image, caption="Differences Highlighted", use_container_width=True)
+        st.download_button(
+            label="Download Highlighted Image",
+            data=Image.fromarray(cv2.cvtColor(result_image, cv2.COLOR_BGR2RGB)).tobytes(),
+            file_name="highlighted_differences.png",
+            mime="image/png"
+        )
+    with col2:
+        st.image(diff_image, caption="Difference Mask", use_container_width=True)
+        st.download_button(
+            label="Download Difference Mask",
+            data=Image.fromarray(diff_image).tobytes(),
+            file_name="difference_mask.png",
+            mime="image/png"
+        )
