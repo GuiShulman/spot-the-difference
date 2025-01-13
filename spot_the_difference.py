@@ -5,56 +5,41 @@ from PIL import Image
 
 # Helper Functions
 
-def align_images(image1, image2):
-    """Align two images using feature matching (ORB)."""
-    # Convert images to grayscale
+def align_images_by_pixel_difference(image1, image2):
+    """Align two images by pixel difference (simply resizing the second image)."""
+    # Convert images to grayscale for pixel comparison
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    # ORB detector
-    orb = cv2.ORB_create()
-    keypoints1, descriptors1 = orb.detectAndCompute(gray1, None)
-    keypoints2, descriptors2 = orb.detectAndCompute(gray2, None)
+    # Resize image2 to match the size of image1
+    image2_resized = cv2.resize(image2, (image1.shape[1], image1.shape[0]))
 
-    # BFMatcher to find the best matches between descriptors
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(descriptors1, descriptors2)
+    return image2_resized
 
-    # Sort matches based on distance
-    matches = sorted(matches, key=lambda x: x.distance)
-
-    # Extract matched keypoints
-    src_pts = np.float32([keypoints1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-    dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-
-    # Calculate homography matrix
-    matrix, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-
-    # Use homography to align the second image to the first
-    aligned_image = cv2.warpPerspective(image2, matrix, (image1.shape[1], image1.shape[0]))
-
-    return aligned_image
-
-def find_differences(image1, image2, threshold, color, thickness, max_differences=None):
-    """Find and mark differences between two images."""
+def find_differences_by_pixel(image1, image2, threshold, color, thickness, max_differences=None):
+    """Find and mark differences between two images by pixel difference."""
+    # Compute absolute difference
     diff = cv2.absdiff(image1, image2)
     gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+    
+    # Threshold the difference to get the regions with significant changes
     _, thresh = cv2.threshold(gray_diff, threshold, 255, cv2.THRESH_BINARY)
 
+    # Find contours in the thresholded difference
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     result_image = image1.copy()
     differences_found = 0
 
     for contour in contours:
-        if cv2.contourArea(contour) > 50:  # Ignore very small differences
+        if cv2.contourArea(contour) > 50:  # Ignore small differences
             x, y, w, h = cv2.boundingRect(contour)
             center = (x + w // 2, y + h // 2)
             radius = max(w, h) // 2
             cv2.circle(result_image, center, radius, color, thickness)
             differences_found += 1
 
-            # Stop if we've found the desired number of differences
+            # Stop if the desired number of differences is found
             if max_differences and differences_found >= max_differences:
                 break
 
@@ -116,11 +101,11 @@ if "image1" in locals() and "image2" in locals():
     color = st.sidebar.color_picker("Marking color", "#FF0000", help="Choose the color to highlight differences.")
     thickness = st.sidebar.slider("Marking thickness", 1, 10, 3, help="Adjust the thickness of the markers on differences.")
 
-    # Align Images
-    aligned_image2 = align_images(image1, image2)
+    # Align Images by Resizing (Pixel-wise)
+    aligned_image2 = align_images_by_pixel_difference(image1, image2)
     
-    # Find differences
-    result_image, diff_image, differences_found = find_differences(
+    # Find differences by pixel
+    result_image, diff_image, differences_found = find_differences_by_pixel(
         image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
     )
 
@@ -162,10 +147,10 @@ if "image1" in locals() and "image2" in locals():
         - Thickness: Adjust the thickness of the circle markers for differences.
 
         **Step 4:** Image alignment.
-        - The images are aligned using feature matching (ORB) to improve the detection accuracy.
+        - The images are resized (pixel-wise) to match the size for comparison.
 
         **Step 5:** Difference Detection.
-        - The differences between the aligned images are highlighted and marked.
+        - The pixel-by-pixel differences are detected and marked.
 
         **Step 6:** Results.
         - View the marked differences and download the highlighted image and difference mask.
