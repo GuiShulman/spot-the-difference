@@ -64,7 +64,6 @@ option = st.radio(
 )
 
 if option == "Split one image (Top/Bottom or Left/Right)":
-    st.image("split_options.png", caption="Example split options", use_container_width=True)
     uploaded_file = st.file_uploader("Upload an image to split", type=["jpg", "jpeg", "png"])
 
     if uploaded_file:
