@@ -7,6 +7,7 @@ from PIL import Image
 
 def align_images(image1, image2):
     """Align two images using feature matching (ORB)."""
+    # Convert images to grayscale
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
@@ -15,22 +16,21 @@ def align_images(image1, image2):
     keypoints1, descriptors1 = orb.detectAndCompute(gray1, None)
     keypoints2, descriptors2 = orb.detectAndCompute(gray2, None)
 
-    # Use a Brute Force Matcher to find the best matches between descriptors
+    # BFMatcher to find the best matches between descriptors
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     matches = bf.match(descriptors1, descriptors2)
 
     # Sort matches based on distance
     matches = sorted(matches, key=lambda x: x.distance)
 
-    # Draw matches (for debugging/visualization)
-    aligned_image = cv2.drawMatches(image1, keypoints1, image2, keypoints2, matches[:10], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-
-    # Use the matched keypoints to calculate a homography matrix
+    # Extract matched keypoints
     src_pts = np.float32([keypoints1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
     dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
 
-    # Compute homography and apply perspective warp
-    matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    # Calculate homography matrix
+    matrix, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+    # Use homography to align the second image to the first
     aligned_image = cv2.warpPerspective(image2, matrix, (image1.shape[1], image1.shape[0]))
 
     return aligned_image
