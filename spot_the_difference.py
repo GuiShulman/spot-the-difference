@@ -5,29 +5,36 @@ from PIL import Image
 
 # Helper Functions
 
-def align_images_by_template_matching(image1, image2):
-    """Align two images using template matching (cross-correlation)."""
-    # Convert images to grayscale for better processing
-    gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
-    gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+def align_images_by_pixel_matching(image1, image2, max_resize, max_move):
+    """Align two images by finding the alignment with the most identical pixels."""
+    best_alignment = None
+    best_pixel_count = 0
+    best_image = None
 
-    # Perform template matching (cross-correlation)
-    result = cv2.matchTemplate(gray2, gray1, cv2.TM_CCOEFF_NORMED)
+    height, width, _ = image1.shape
 
-    # Get the location with the maximum correlation (best alignment)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+    for resize_factor in np.linspace(1, 1 + max_resize, num=5):  # Test different resize factors
+        resized_image2 = cv2.resize(image2, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_LINEAR)
 
-    # Check if the match value is above a threshold to consider it a valid match
-    if max_val < 0.5:  # Adjust the threshold if needed
-        raise ValueError("The match value is too low, alignment failed!")
+        for move_x in range(-max_move, max_move + 1, 5):  # Test different translations in x direction
+            for move_y in range(-max_move, max_move + 1, 5):  # Test different translations in y direction
+                translation_matrix = np.float32([[1, 0, move_x], [0, 1, move_y]])
+                translated_image2 = cv2.warpAffine(resized_image2, translation_matrix, (width, height))
 
-    # Create the affine matrix for shifting
-    translation_matrix = np.float32([[1, 0, max_loc[0]], [0, 1, max_loc[1]]])
+                # Compare pixel similarity ignoring edges
+                border = 20  # Ignore edges of 20 pixels (can make this configurable)
+                cropped_image1 = image1[border:-border, border:-border]
+                cropped_image2 = translated_image2[border:-border, border:-border]
 
-    # Apply the translation using warpAffine
-    aligned_image2 = cv2.warpAffine(image2, translation_matrix, (image2.shape[1], image2.shape[0]))
+                # Count matching pixels (pixel-wise comparison)
+                matching_pixels = np.sum(cropped_image1 == cropped_image2)
+                
+                if matching_pixels > best_pixel_count:
+                    best_pixel_count = matching_pixels
+                    best_alignment = (resize_factor, move_x, move_y)
+                    best_image = translated_image2
 
-    return aligned_image2, max_loc, max_val
+    return best_image, best_alignment, best_pixel_count
 
 def find_differences_by_pixel(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images by pixel difference."""
@@ -113,15 +120,16 @@ if "image1" in locals() and "image2" in locals():
     threshold = st.sidebar.slider("Threshold for differences", 1, 255, 50, help="Lower values detect more subtle differences.")
     color = st.sidebar.color_picker("Marking color", "#FF0000", help="Choose the color to highlight differences.")
     thickness = st.sidebar.slider("Marking thickness", 1, 10, 3, help="Adjust the thickness of the markers on differences.")
+    max_resize = st.sidebar.slider("Max resize factor", 0.0, 1.0, 0.2, help="Max resizing percentage for alignment.")
+    max_move = st.sidebar.slider("Max move distance", 0, 50, 20, help="Max move distance for alignment.")
 
-    # Align Images using Template Matching (Cross-Correlation)
-    try:
-        aligned_image2, max_loc, max_val = align_images_by_template_matching(image1, image2)
-        st.sidebar.write(f"Best alignment position: {max_loc} with match value: {max_val:.4f}")
-    except ValueError as e:
-        st.sidebar.error(str(e))
-        st.stop()
-    
+    # Align Images based on pixel matching
+    aligned_image2, best_alignment, best_pixel_count = align_images_by_pixel_matching(
+        image1, image2, max_resize, max_move
+    )
+    st.sidebar.write(f"Best alignment: Resize factor = {best_alignment[0]:.2f}, Shift = ({best_alignment[1]}, {best_alignment[2]})")
+    st.sidebar.write(f"Matching pixels: {best_pixel_count}")
+
     # Find differences by pixel
     result_image, diff_image, differences_found = find_differences_by_pixel(
         image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
@@ -164,9 +172,11 @@ if "image1" in locals() and "image2" in locals():
         - Threshold: Controls the sensitivity of difference detection.
         - Color: Choose the color to mark the differences.
         - Thickness: Adjust the thickness of the circle markers for differences.
+        - Max Resize: The maximum resize factor allowed for alignment.
+        - Max Move: The maximum translation allowed for alignment.
 
-        **Step 4:** Image Alignment (Template Matching).
-        - The second image is aligned to the first using template matching (cross-correlation).
+        **Step 4:** Image Alignment (Best Pixel Match).
+        - The second image is aligned based on finding the most identical pixels with the first image using resizing and translation.
 
         **Step 5:** Difference Detection.
         - The pixel-by-pixel differences are detected and marked.
