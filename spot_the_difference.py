@@ -4,36 +4,41 @@ import numpy as np
 from PIL import Image
 
 # Helper Functions
-def preprocess_image(image):
-    """Preprocess the image for better alignment."""
-    # Convert to grayscale and apply GaussianBlur for better feature detection
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    return blurred
 
-def align_images(image1, image2):
-    """Align two images using feature matching."""
-    # Preprocess images
-    gray1 = preprocess_image(image1)
-    gray2 = preprocess_image(image2)
+def align_images(image1, image2, method='ORB'):
+    """Align two images using selected keypoint matching method."""
+    gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+    gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    orb = cv2.ORB_create()
-    kp1, des1 = orb.detectAndCompute(gray1, None)
-    kp2, des2 = orb.detectAndCompute(gray2, None)
+    if method == 'ORB':
+        orb = cv2.ORB_create()
+        kp1, des1 = orb.detectAndCompute(gray1, None)
+        kp2, des2 = orb.detectAndCompute(gray2, None)
 
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(des1, des2)
-    matches = sorted(matches, key=lambda x: x.distance)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matches = bf.match(des1, des2)
+        matches = sorted(matches, key=lambda x: x.distance)
 
-    src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-    dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+    elif method == 'SIFT':
+        sift = cv2.SIFT_create()
+        kp1, des1 = sift.detectAndCompute(gray1, None)
+        kp2, des2 = sift.detectAndCompute(gray2, None)
+
+        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+        matches = bf.match(des1, des2)
+        matches = sorted(matches, key=lambda x: x.distance)
+
+        src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
 
     matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
     height, width, _ = image1.shape
     aligned_image = cv2.warpPerspective(image2, matrix, (width, height))
+    return aligned_image
 
-    # Provide debug info
-    return aligned_image, matches
 
 def find_differences(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images."""
@@ -62,6 +67,7 @@ def find_differences(image1, image2, threshold, color, thickness, max_difference
 
 
 # Streamlit App
+
 st.title("Spot the Difference")
 
 # Upload Section
@@ -111,9 +117,12 @@ if "image1" in locals() and "image2" in locals():
     max_differences = st.sidebar.number_input(
         "Number of differences to find (set to 0 to find all)", min_value=0, value=0, help="Enter the number of differences to detect."
     )
+    alignment_method = st.sidebar.selectbox(
+        "Select Alignment Method", ["ORB", "SIFT"], help="Choose a feature matching algorithm for image alignment."
+    )
 
     # Process Images
-    aligned_image2, matches = align_images(image1, image2)
+    aligned_image2 = align_images(image1, image2, method=alignment_method)
     result_image, diff_image, differences_found = find_differences(
         image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
     )
@@ -121,12 +130,6 @@ if "image1" in locals() and "image2" in locals():
     # Display Results
     st.subheader("Results")
     st.write(f"Total differences found: {differences_found}")
-    
-    # Show matches during alignment process
-    st.subheader("Alignment Debug Info")
-    st.write(f"Number of keypoint matches: {len(matches)}")
-
-    # Showing results
     col1, col2 = st.columns(2)
     with col1:
         st.image(result_image, caption="Differences Highlighted", use_container_width=True)
@@ -144,3 +147,14 @@ if "image1" in locals() and "image2" in locals():
             file_name="difference_mask.png",
             mime="image/png"
         )
+
+    # Show Process Explanation
+    st.sidebar.subheader("How it works:")
+    st.sidebar.write(
+        """
+        - **Step 1:** Choose how to upload images (split or separate).
+        - **Step 2:** Select an alignment method to match the images.
+        - **Step 3:** Adjust the difference detection threshold, color, and thickness.
+        - **Step 4:** Marked differences will be displayed, along with a downloadable result.
+        """
+    )
