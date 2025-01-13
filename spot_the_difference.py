@@ -2,43 +2,24 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
+from scipy.ndimage import correlate
 
 # Helper Functions
 
-def align_images(image1, image2, method='ORB'):
-    """Align two images using selected keypoint matching method."""
+def align_images(image1, image2):
+    """Align two images using cross-correlation to minimize pixel difference."""
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    if method == 'ORB':
-        orb = cv2.ORB_create()
-        kp1, des1 = orb.detectAndCompute(gray1, None)
-        kp2, des2 = orb.detectAndCompute(gray2, None)
+    # Perform cross-correlation
+    result = correlate(gray1, gray2, mode='constant')
+    y, x = np.unravel_index(np.argmax(result), result.shape)
 
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches = bf.match(des1, des2)
-        matches = sorted(matches, key=lambda x: x.distance)
+    # Create translation matrix and apply
+    translation_matrix = np.float32([[1, 0, x], [0, 1, y]])
+    aligned_image = cv2.warpAffine(image2, translation_matrix, (image1.shape[1], image1.shape[0]))
 
-        src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-        dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-
-    elif method == 'SIFT':
-        sift = cv2.SIFT_create()
-        kp1, des1 = sift.detectAndCompute(gray1, None)
-        kp2, des2 = sift.detectAndCompute(gray2, None)
-
-        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-        matches = bf.match(des1, des2)
-        matches = sorted(matches, key=lambda x: x.distance)
-
-        src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-        dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-
-    matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-    height, width, _ = image1.shape
-    aligned_image = cv2.warpPerspective(image2, matrix, (width, height))
     return aligned_image
-
 
 def find_differences(image1, image2, threshold, color, thickness, max_differences=None):
     """Find and mark differences between two images."""
@@ -65,17 +46,16 @@ def find_differences(image1, image2, threshold, color, thickness, max_difference
 
     return result_image, diff, differences_found
 
-
 # Streamlit App
 
 st.title("Spot the Difference")
 
 # Upload Section
-st.subheader("Upload Images")
+st.subheader("Step 1: Upload Images")
 option = st.radio(
-    "",
+    "Choose your image input method",
     ["Split one image (Top/Bottom or Left/Right)", "Upload two separate images"],
-    help="Choose how to provide input images.",
+    help="Choose how to provide input images."
 )
 
 if option == "Split one image (Top/Bottom or Left/Right)":
@@ -110,19 +90,27 @@ elif option == "Upload two separate images":
 
 # Settings Section
 if "image1" in locals() and "image2" in locals():
-    st.sidebar.subheader("Settings")
-    threshold = st.sidebar.slider("Threshold for differences", 1, 255, 50, help="Lower values detect more subtle differences.")
-    color = st.sidebar.color_picker("Marking color", "#FF0000")
-    thickness = st.sidebar.slider("Marking thickness", 1, 10, 3)
+    st.sidebar.subheader("Step 2: Choose Difference Detection Settings")
+
+    # Number of differences to find
     max_differences = st.sidebar.number_input(
-        "Number of differences to find (set to 0 to find all)", min_value=0, value=0, help="Enter the number of differences to detect."
-    )
-    alignment_method = st.sidebar.selectbox(
-        "Select Alignment Method", ["ORB", "SIFT"], help="Choose a feature matching algorithm for image alignment."
+        "Number of differences to find", min_value=0, value=0, help="Enter the number of differences to detect. 0 for all."
     )
 
-    # Process Images
-    aligned_image2 = align_images(image1, image2, method=alignment_method)
+    st.sidebar.subheader("Step 3: Adjust Detection Parameters")
+    threshold = st.sidebar.slider("Threshold for differences", 1, 255, 50, help="Lower values detect more subtle differences.")
+    color = st.sidebar.color_picker("Marking color", "#FF0000", help="Choose the color to highlight differences.")
+    thickness = st.sidebar.slider("Marking thickness", 1, 10, 3, help="Adjust the thickness of the markers on differences.")
+
+    st.sidebar.subheader("Step 4: Alignment Method")
+    st.sidebar.write(
+        "Images will be automatically aligned for optimal comparison. You can adjust alignment settings here if needed."
+    )
+    
+    # Align Images
+    aligned_image2 = align_images(image1, image2)
+    
+    # Find differences
     result_image, diff_image, differences_found = find_differences(
         image1, aligned_image2, threshold, tuple(int(color[i:i+2], 16) for i in (1, 3, 5)), thickness, max_differences or None
     )
@@ -152,9 +140,9 @@ if "image1" in locals() and "image2" in locals():
     st.sidebar.subheader("How it works:")
     st.sidebar.write(
         """
-        - **Step 1:** Choose how to upload images (split or separate).
-        - **Step 2:** Select an alignment method to match the images.
-        - **Step 3:** Adjust the difference detection threshold, color, and thickness.
-        - **Step 4:** Marked differences will be displayed, along with a downloadable result.
+        - **Step 1:** Upload images (either split one or upload two separate).
+        - **Step 2:** Choose how many differences you'd like to find (0 for all).
+        - **Step 3:** Adjust detection threshold, marking color, and thickness for better visuals.
+        - **Step 4:** Alignment is performed automatically. You can adjust settings here.
         """
     )
