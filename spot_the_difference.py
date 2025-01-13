@@ -5,6 +5,15 @@ from PIL import Image
 
 # Helper Functions
 
+def crop_borders(image):
+    """Crop empty borders (black or white) from an image."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+    coords = cv2.findNonZero(binary)
+    x, y, w, h = cv2.boundingRect(coords)
+    cropped_image = image[y:y + h, x:x + w]
+    return cropped_image
+
 def align_images_by_pixel_similarity(image1, image2, move_range):
     """Align two images by maximizing pixel similarity within a defined movement range."""
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
@@ -97,6 +106,15 @@ elif option == "Upload two separate images":
 # Settings Section
 if "image1" in locals() and "image2" in locals():
     st.sidebar.title("Settings")
+
+    # Cropping Option
+    crop_borders_option = st.sidebar.checkbox(
+        "Crop Borders", value=True,
+        help="Automatically crop unnecessary borders from images before processing."
+    )
+    if crop_borders_option:
+        image1 = crop_borders(image1)
+        image2 = crop_borders(image2)
 
     # Alignment Parameters
     st.sidebar.subheader("1️⃣ Image Alignment")
