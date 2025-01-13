@@ -6,17 +6,32 @@ from PIL import Image
 # Helper Functions
 
 def align_images(image1, image2):
-    """Align two images using a basic image subtraction for alignment."""
+    """Align two images using feature matching (ORB)."""
     gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
     gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
 
-    # Perform basic image subtraction for alignment
-    result = cv2.absdiff(gray1, gray2)
-    y, x = np.unravel_index(np.argmax(result), result.shape)
+    # ORB detector
+    orb = cv2.ORB_create()
+    keypoints1, descriptors1 = orb.detectAndCompute(gray1, None)
+    keypoints2, descriptors2 = orb.detectAndCompute(gray2, None)
 
-    # Create translation matrix and apply
-    translation_matrix = np.float32([[1, 0, x], [0, 1, y]])
-    aligned_image = cv2.warpAffine(image2, translation_matrix, (image1.shape[1], image1.shape[0]))
+    # Use a Brute Force Matcher to find the best matches between descriptors
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = bf.match(descriptors1, descriptors2)
+
+    # Sort matches based on distance
+    matches = sorted(matches, key=lambda x: x.distance)
+
+    # Draw matches (for debugging/visualization)
+    aligned_image = cv2.drawMatches(image1, keypoints1, image2, keypoints2, matches[:10], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+    # Use the matched keypoints to calculate a homography matrix
+    src_pts = np.float32([keypoints1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+    # Compute homography and apply perspective warp
+    matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    aligned_image = cv2.warpPerspective(image2, matrix, (image1.shape[1], image1.shape[0]))
 
     return aligned_image
 
@@ -131,12 +146,30 @@ if "image1" in locals() and "image2" in locals():
         )
 
     # Show Process Explanation
-    st.sidebar.subheader("How it works:") 
+    st.sidebar.subheader("How it works:")
+
     st.sidebar.write(
         """
-        - **Step 1:** Upload images (either split one or upload two separate).
-        - **Step 2:** Choose how many differences you'd like to find (0 for all).
-        - **Step 3:** Adjust detection threshold, marking color, and thickness for better visuals.
-        - **Step 4:** Alignment is performed automatically. You can adjust settings here.
+        **Step 1:** Upload or split your images.
+        - You can upload two separate images or split one image into two (top/bottom or left/right).
+
+        **Step 2:** Choose the number of differences you want to detect.
+        - Set the number of differences (enter 0 for detecting all).
+
+        **Step 3:** Adjust the detection parameters.
+        - Threshold: Controls the sensitivity of difference detection.
+        - Color: Choose the color to mark the differences.
+        - Thickness: Adjust the thickness of the circle markers for differences.
+
+        **Step 4:** Image alignment.
+        - The images are aligned using feature matching (ORB) to improve the detection accuracy.
+
+        **Step 5:** Difference Detection.
+        - The differences between the aligned images are highlighted and marked.
+
+        **Step 6:** Results.
+        - View the marked differences and download the highlighted image and difference mask.
+
+        Enjoy spotting the differences!
         """
     )
